@@ -26,11 +26,7 @@ class ShopifyService {
 
   async getShopifyOrders(shop, accessToken) {
   try {
-    const date60DaysAgo = new Date();
-    date60DaysAgo.setDate(date60DaysAgo.getDate() - 60);
-    const isoDate = date60DaysAgo.toISOString().split('.')[0] + 'Z';
-
-    console.log(`Fetching orders created since: ${isoDate}`);
+    console.log(`Fetching all orders`);
 
     let hasNextPage = true;
     let endCursor = null;
@@ -41,8 +37,7 @@ class ShopifyService {
       {
         orders(
           first: 50,
-          after: ${endCursor ? `"${endCursor}"` : null},
-          query: "created_at:>='${isoDate}'"
+          after: ${endCursor ? `"${endCursor}"` : null}
         ) {
           edges {
             node {

@@ -23,7 +23,7 @@ const Dashboard = () => {
         }
 
         setLoading(true);
-        const response = await api.getOrdersLast60Days(shop, accessToken);
+        const response = await api.getOrders(shop, accessToken, 50, 0, true);
         console.log('Fetched orders from backend:', response.data); // Added logging
         if (response.success) {
           setOrders(response.data);
@@ -93,7 +93,7 @@ const Dashboard = () => {
             <path d="M6 2L12 8L18 2L22 6L16 12L22 18L18 22L12 16L6 22L2 18L8 12L2 6L6 2Z" />
           </svg>
         </div>
-        <h1 className="text-white text-lg font-semibold">Orders from last 60 days</h1>
+        <h1 className="text-white text-lg font-semibold">All Orders</h1>
       </div>
 
       <div className="text-sm text-gray-500 mb-4">Total: {orders.length} orders</div>
@@ -103,7 +103,7 @@ const Dashboard = () => {
           <div className="bg-gray-50 rounded-lg p-8">
             <h3 className="text-lg font-medium text-gray-900 mb-2">No orders found</h3>
             <p className="text-gray-600">
-              There are no orders in the last 60 days. Try syncing orders or check your Shopify store.
+              There are no orders. Try syncing orders or check your Shopify store.
             </p>
           </div>
         </div>
