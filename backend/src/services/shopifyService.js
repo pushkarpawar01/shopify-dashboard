@@ -25,158 +25,85 @@ class ShopifyService {
   }
 
   async getShopifyOrders(shop, accessToken) {
-  try {
-    console.log(`Fetching all orders`);
+    try {
+      console.log(`Fetching all orders using REST API`);
 
-    let hasNextPage = true;
-    let endCursor = null;
-    let allOrders = [];
+      let allOrders = [];
+      let nextUrl = `https://${shop}/admin/api/${LATEST_API_VERSION}/orders.json?limit=250`;
 
-    while (hasNextPage) {
-      const query = `
-      {
-        orders(
-          first: 50,
-          after: ${endCursor ? `"${endCursor}"` : null}
-        ) {
-          edges {
-            node {
-              id
-              name
-              createdAt
-              totalPriceSet {
-                shopMoney {
-                  amount
-                  currencyCode
-                }
+      while (nextUrl) {
+        console.log(`Fetching: ${nextUrl}`);
+
+        const response = await fetch(nextUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Shopify-Access-Token': accessToken
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Shopify API error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log(`Fetched ${data.orders.length} orders in this page`);
+
+        // Add orders to our collection
+        allOrders = allOrders.concat(data.orders);
+
+        // Check for next page using Link header
+        const linkHeader = response.headers.get('link');
+        nextUrl = null;
+
+        if (linkHeader) {
+          const links = linkHeader.split(',');
+          for (const link of links) {
+            if (link.includes('rel="next"')) {
+              const match = link.match(/<([^>]+)>/);
+              if (match) {
+                nextUrl = match[1];
+                break;
               }
             }
-            cursor
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
           }
         }
-      }
-      `;
 
-      const apiUrl = `https://${shop}/admin/api/${LATEST_API_VERSION}/graphql.json`;
-
-      const res = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken
-        },
-        body: JSON.stringify({ query })
-      });
-
-      const json = await res.json();
-      console.log("Shopify raw response:", JSON.stringify(json, null, 2));
-
-      if (json.errors) {
-        throw new Error(`Shopify API errors: ${JSON.stringify(json.errors)}`);
+        // Safety check to prevent infinite loops
+        if (allOrders.length > 10000) {
+          console.warn('Fetched over 10,000 orders, stopping to prevent memory issues');
+          break;
+        }
       }
 
-      const ordersData = json.data.orders;
-      ordersData.edges.forEach(edge => {
-        allOrders.push(edge.node);
-      });
+      console.log(`Total orders fetched: ${allOrders.length}`);
+      return allOrders;
 
-      hasNextPage = ordersData.pageInfo.hasNextPage;
-      endCursor = ordersData.pageInfo.endCursor;
+    } catch (err) {
+      console.error("Error fetching orders from Shopify:", err);
+      throw err;
     }
-
-    console.log(`Fetched ${allOrders.length} orders`);
-    return allOrders;
-
-  } catch (err) {
-    console.error("Error fetching orders from Shopify:", err);
-    throw err;
   }
-}
 
 
   async getOrderById(shop, accessToken, orderId) {
-    const query = `
-      query getOrder($id: ID!) {
-        order(id: $id) {
-          id
-          name
-          email
-          createdAt
-          updatedAt
-          displayFinancialStatus
-          displayFulfillmentStatus
-          totalPriceSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
-          customer {
-            firstName
-            lastName
-            email
-          }
-          lineItems(first: 100) {
-            edges {
-              node {
-                id
-                title
-                quantity
-                sku
-                variant {
-                  id
-                  image {
-                    url
-                  }
-                }
-                originalTotalSet {
-                  shopMoney {
-                    amount
-                    currencyCode
-                  }
-                }
-              }
-            }
-          }
-          shippingAddress {
-            name
-            address1
-            address2
-            city
-            province
-            country
-            zip
-          }
-          billingAddress {
-            name
-            address1
-            address2
-            city
-            province
-            country
-            zip
-          }
-        }
-      }
-    `;
-
     try {
-      const response = await axios.post(
-        `https://${shop}/admin/api/${LATEST_API_VERSION}/graphql.json`,
-        { query, variables: { id: orderId } },
-        {
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const url = `https://${shop}/admin/api/${LATEST_API_VERSION}/orders/${orderId}.json`;
 
-      return response.data.data.order;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Shopify API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.order;
     } catch (error) {
       console.error('Error fetching order from Shopify:', error);
       throw error;
@@ -188,15 +115,17 @@ class ShopifyService {
       const orders = await this.getShopifyOrders(shop, accessToken);
       const orderData = orders.map(order => ({
         shop: process.env.SHOPIFY_SHOP,
-        order_id: order.id.split('/').pop(),
-        status: order.displayFinancialStatus,
-        total_price: parseFloat(order.totalPriceSet.shopMoney.amount),
-        currency: order.totalPriceSet.shopMoney.currencyCode,
-        customer_email: order.customer?.email || order.email,
+        order_id: order.id,
+        status: order.financial_status,
+        total_price: parseFloat(order.total_price),
+        currency: order.currency,
+        customer_email: order.email,
         customer_name: order.customer
-          ? `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim()
-          : 'Guest',
-        created_at: order.createdAt,
+          ? `${order.customer.first_name || ''} ${order.customer.last_name || ''}`.trim()
+          : order.billing_address
+            ? order.billing_address.name
+            : 'Guest',
+        created_at: order.created_at,
       }));
 
       return orderData;
